@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Atmel Studio Solution File, Format Version 11.00
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "niznchg", "niznchg.cproj", "{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|AVR = Debug|AVR
+		Release|AVR = Release|AVR
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Debug|AVR.ActiveCfg = Debug|AVR
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Debug|AVR.Build.0 = Debug|AVR
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Release|AVR.ActiveCfg = Release|AVR
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Release|AVR.Build.0 = Release|AVR
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
