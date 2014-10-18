@@ -13,41 +13,83 @@ typedef unsigned char byte;
 #include <util/delay.h>
 
 void init();
-void output(byte pow);
+void init_adc();
+void init_pwm();
+
+void output_pwm(byte pow);
+
+unsigned short read_adc(byte source);
+
+#define IBAT  (1 << REFS0) | (0x0d << MUX0) /* External VRef, Differential PA1-PA2, Gain 20x */
+#define VBAT  (1 << REFS0) | (2 << MUX0)    /* External VRef, Single-end PA2 */
+#define TBAT  (1 << REFS0) | (3 << MUX0)    /* External VRef, Single-end PA3 */
+
+
+unsigned short buf[3];
 
 int main(void)
 {
-	byte dir = 1;
-	byte p = 0;
-	
-	init();
-	
+    byte dir = 1;
+    byte p = 0;
+    unsigned short ibat, vbat, tbat;
+    
+    init();
+    
     while(1)
     {
-		if (dir)
-		{
-	        if (p < 250)
-			    p = p + 5;
-			else
-				dir = 0;
-		}
-		else
-		{
-			if (p > 10)
-				p = p - 5;
-			else
-				dir = 1;
-		}
-		output(p);
-		_delay_ms(50);
+        if (dir)
+        {
+            if (p < 254)
+                p = p + 1;
+            else
+                dir = 0;
+        }
+        else
+        {
+            if (p >= 1)
+                p = p - 1;
+            else
+            {
+                _delay_ms(2000);
+                dir = 1;
+            }
+                
+        }
+        output_pwm(p);
+        _delay_ms(100);
+        
+        
+        ibat = read_adc(IBAT);
+        tbat = read_adc(TBAT);
+        
+        output_pwm(0);
+        vbat = read_adc(VBAT);
+
+        output_pwm(p);
+        
+        
+        if (buf[0] != ibat)
+            buf[0] = ibat;
+        
+        if (buf[1] != vbat)
+            buf[1] = vbat;
+            
+        if (buf[2] != tbat)
+            buf[2] = tbat;
     }
 }
 
 void init()
 {
-	/* Clear Output */
-	PORTB = 0x00;
-	
+    init_pwm();
+    init_adc();
+}
+
+void init_pwm()
+{
+    /* Clear Output */
+    PORTB = 0x00;
+    
     /*
     Port B Data Direction Register (controls the mode of all pins within port B)
     */
@@ -71,8 +113,37 @@ void init()
     TCCR0B = 0 << WGM02 | 1 << CS00;
 }
 
+void init_adc()
+{
+    PORTA = 0x00;
+    DDRA = 0x00;
+    
+    /* ADC Enable, Prescaler factor 64 */ 
+    ADCSRA = (1 << ADEN) | (7 << ADPS0);
+    /* Left Adjusted */
+    ADCSRB = (1 << ADLAR);
+    /* Digital Buffer All Cleared */
+    DIDR0 = 0xff;
+    /* Initial Input VBAT*/
+    ADMUX = VBAT;
+}
 
-void output(byte pow)
+unsigned short read_adc(byte source)
+{
+    ADMUX = source;
+    
+    /* Give up the first conversion */
+    ADCSRA |= (1 << ADSC);
+    loop_until_bit_is_clear(ADCSRA, ADSC);
+    
+    /* Do another conversion */
+    ADCSRA |= (1 << ADSC);
+    loop_until_bit_is_clear(ADCSRA, ADSC);
+    
+    return ADCL | (ADCH << 8);
+}
+
+void output_pwm(byte pow)
 {
     OCR0A = pow;
 }
