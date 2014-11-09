@@ -83,10 +83,13 @@ void init_port();
 void init_adc();
 void init_pwm();
 
-void output_pwm(byte pow);
+void output_pwm(unsigned short pow);
 
 unsigned short read_adc(byte source);
 signed char read_temp();
+
+void led_on(byte led);
+void led_off(byte led);
 
 void detect_batt();
 signed char charge_fast();
@@ -95,6 +98,24 @@ signed char charge_trickle();
 #define IBAT  (1 << REFS0) | (0x0d << MUX0) /* External VRef, Differential PA1-PA2, Gain 20x */
 #define VBAT  (1 << REFS0) | (2 << MUX0)    /* External VRef, Single-end PA2 */
 #define TBAT  (1 << REFS0) | (3 << MUX0)    /* External VRef, Single-end PA3 */
+
+#define RED     PORTB1 
+#define GREEN   PORTB0
+
+
+#define BATT_VALID_LOW 231
+#define BATT_VALID_HIGH 912
+#define TEMP_VALID_LOW -10
+#define TEMP_VALID_HIGH 45
+
+
+#define CHG_FAST_CURRENT 520    /* I * 0.25 ohm / 4.3 * 20 gain / 3.675v * 1023 */
+#define CHG_FAST_PWM_MIN 10
+#define CHG_FAST_PWM_MAX 254
+#define CHG_TRICKLE_PWM 100
+
+#define CHG_FAST_STOP_VOLTAGE 900
+#define CHG_CURRENT_FUSE 1000
 
 
 unsigned short buf[3];
@@ -106,9 +127,18 @@ int main(void)
     while (1)
     {
         detect_batt();
+
+        led_on(RED);
+        led_off(GREEN);
+        
         charge_fast();
+
+        led_off(RED);
+        led_on(GREEN);
+        
         charge_trickle();
-        _delay_ms(10000);
+        
+        _delay_ms(100);
     }
 }
 
@@ -125,15 +155,16 @@ void init_port()
     PORTA = 0x00;
     PORTB = 0x00;
     
-    /* PA[7..0] Input, PB2 as PWM Out */
+    /* PA[7..0] Input, PB2 as PWM Out, LEDs out */
     DDRA = 0x00;
-    DDRB = 1 << DDB2;
+    DDRB = 1 << DDB2 | 1 << RED | 1 << GREEN;
 }
+
 void init_pwm()
 {
     /* Fast PWM */
-    TCCR0A = 2 << COM0A0 | 3 << WGM00;
-    /* Fast PWM, No Prescalar */
+    TCCR0A = 0 << COM0A0 | 1 << WGM00; /* Not to turn on */
+    /* Fast PWM, Prescaler div1 */
     TCCR0B = 0 << WGM02 | 1 << CS00;
 }
 
@@ -174,15 +205,19 @@ signed char read_temp()
     return pgm_read_byte(tref + tbat);
 }
 
-void output_pwm(byte pow)
+void output_pwm(unsigned short pow)
 {
-    OCR0A = pow;
+    if (pow == 0)
+    {
+        TCCR0A &= ~(3 << COM0A0); /* Turn off pwm */
+        OCR0A = 0;
+    }
+    else
+    {
+        TCCR0A |= 2 << COM0A0; /* Turn on pwm */
+        OCR0A = pow - 1;
+    }
 }
-
-#define BATT_VALID_LOW 231
-#define BATT_VALID_HIGH 912
-#define TEMP_VALID_LOW -20
-#define TEMP_VALID_HIGH 50
 
 void detect_batt()
 {
@@ -205,26 +240,35 @@ void detect_batt()
     }
 }
 
-#define CHG_FAST_CURRENT 480
-#define CHG_FAST_PWM_MIN 40
-#define CHG_FAST_PWM_MAX 254
+void led_on(byte led)
+{
+    PORTB |= (1 << led);
+}
 
-#define CHG_FAST_STOP_VOLTAGE 900
-#define CHG_CURRENT_FUSE 1000
+void led_off(byte led)
+{
+    PORTB &= ~(1 << led);
+}
 
 signed char charge_fast()
 {
     unsigned char pwm;
     short ibat, vbat;
     signed char tbat;
-    unsigned short tick = 0;
+    uint32_t tick = 0;
 
     pwm = CHG_FAST_PWM_MIN;
-        
+
+    led_off(GREEN);
+    led_on(RED);
+    
     while (1)
     {
         output_pwm(pwm);
-        ibat = read_adc(IBAT) >> 6;
+        
+        ibat = (read_adc(IBAT) >> 6) + (read_adc(IBAT) >> 6);
+        ibat = ibat >> 1;
+
         if (ibat >= CHG_CURRENT_FUSE)
         {
             output_pwm(0);
@@ -246,11 +290,22 @@ signed char charge_fast()
             }
         }
         
+        if (tick > 3600000) /* Time out after about 1 hour */
+        {
+            output_pwm(0);
+            led_on(GREEN);
+            led_off(RED);
+            return 0;
+        }
+        
         if ((tick & 0x3ff) == 0x3ff) /* approximately 1.1 second */
         {
             output_pwm(0);
-            _delay_ms(10);
-            vbat = read_adc(VBAT) >> 6;
+            _delay_ms(20);
+            
+            vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
+            vbat = vbat >> 1;
+            
             tbat = read_temp();
             if ((tbat < TEMP_VALID_LOW) || (tbat > TEMP_VALID_HIGH))
             {
@@ -260,7 +315,9 @@ signed char charge_fast()
             if (vbat >= CHG_FAST_STOP_VOLTAGE)
             {
                 output_pwm(0);
-                return vbat + vbat; /* Finish at Target Voltage */
+                led_on(GREEN);
+                led_off(RED);
+                return 0; /* Finish at Target Voltage */
             }
         }
         
@@ -273,6 +330,7 @@ signed char charge_trickle()
 {
     signed char tbat;
     short vbat;
+    unsigned t = 0;
     
     /* Wait Until Battery Removed */
     output_pwm(0);
@@ -287,7 +345,17 @@ signed char charge_trickle()
         {
             return 0;
         }
-        _delay_ms(500);
-    }
         
+        _delay_ms(500);
+
+        t ++;
+        if ((t & 0x3) == 0)
+        {
+            output_pwm(CHG_TRICKLE_PWM);
+            led_on(RED);
+            _delay_ms(150);
+            led_off(RED);
+            output_pwm(0);
+        }
+    }
 }
