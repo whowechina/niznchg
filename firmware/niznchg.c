@@ -109,7 +109,7 @@ signed char charge_trickle();
 #define TEMP_VALID_HIGH 45
 
 
-#define CHG_FAST_CURRENT 520    /* I * 0.25 ohm / 4.3 * 20 gain / 3.675v * 1023 */
+#define CHG_FAST_CURRENT 560    /* I * 0.25 ohm / 4.3 * 20 gain / 3.675v * 1023 */
 #define CHG_FAST_PWM_MIN 10
 #define CHG_FAST_PWM_MAX 254
 #define CHG_TRICKLE_PWM 100
@@ -123,6 +123,13 @@ unsigned short buf[3];
 int main(void)
 {
     init();
+    led_on(RED);
+    _delay_ms(200);
+    led_off(RED);
+    led_on(GREEN);
+    _delay_ms(200);
+    led_off(GREEN);
+    
     
     while (1)
     {
