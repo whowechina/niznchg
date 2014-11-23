@@ -110,32 +110,8 @@ ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
 
-[Document6]
-DocumentPath=nizn.OutJob
-AnnotationEnabled=1
-AnnotateStartValue=1
-AnnotationIndexControlEnabled=0
-AnnotateSuffix=
-AnnotateScope=All
-AnnotateOrder=-1
-DoLibraryUpdate=1
-DoDatabaseUpdate=1
-ClassGenCCAutoEnabled=1
-ClassGenCCAutoRoomEnabled=1
-ClassGenNCAutoScope=None
-DItemRevisionGUID=
-GenerateClassCluster=0
-
 [GeneratedDocument1]
 DocumentPath=Output\Design Rule Check - nizn.html
-DItemRevisionGUID=
-
-[GeneratedDocument2]
-DocumentPath=Output\power.BOM
-DItemRevisionGUID=
-
-[GeneratedDocument3]
-DocumentPath=Output\power.CSV
 DItemRevisionGUID=
 
 [Configuration1]
