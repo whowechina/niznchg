@@ -107,7 +107,7 @@ void batt_alert();
 #define BATT_VALID_LOW 231
 #define BATT_VALID_HIGH 912
 #define TEMP_VALID_LOW -10
-#define TEMP_VALID_HIGH 47
+#define TEMP_VALID_HIGH 48
 
 
 #define CHG_FAST_CURRENT 520    /* I * 0.25 ohm / 4.3 * 20 gain / 3.675v * 1023 */
@@ -117,7 +117,7 @@ void batt_alert();
 #define CHG_PWM_MAX 254
 
 #define CHG_FAST_STOP_VOLTAGE 905   /* V / 4.3 / 3.675 * 1023 * 101% */
-#define CHG_CURRENT_FUSE 1010
+#define CHG_CURRENT_FUSE 1020
 
 
 unsigned short buf[3];
@@ -126,10 +126,10 @@ int main(void)
 {
     init();
     led_on(RED);
-    _delay_ms(200);
+    _delay_ms(1000);
     led_off(RED);
     led_on(GREEN);
-    _delay_ms(200);
+    _delay_ms(1000);
     led_off(GREEN);
     
     
@@ -146,6 +146,7 @@ int main(void)
             continue;
         }
 
+        output_pwm(0);
         led_off(RED);
         led_on(GREEN);
         
@@ -176,7 +177,7 @@ void init_port()
 void init_pwm()
 {
     /* Fast PWM */
-    TCCR0A = 0 << COM0A0 | 1 << WGM00; /* Not to turn on */
+    TCCR0A = 0 << COM0A0 | 1 << WGM00; /* Not to turn on right now */
     /* Fast PWM, Prescaler div1 */
     TCCR0B = 0 << WGM02 | 1 << CS00;
 }
@@ -268,7 +269,9 @@ signed short charge_fast()
     unsigned char pwm;
     short ibat, vbat;
     signed char tbat;
-    uint32_t tick = 0;
+    short vsum = 0, last_vsum = 0;    
+    short seconds = 0, tick = 0;
+    short old_sec = 0;
 
     pwm = CHG_PWM_MIN;
 
@@ -289,7 +292,7 @@ signed short charge_fast()
         if (ibat >= CHG_CURRENT_FUSE)
         {
             output_pwm(0);
-//            return -1; /* Short Current */
+            return -1; /* Finished because of Short Current */
         }
         
         if (ibat < CHG_FAST_CURRENT)
@@ -307,38 +310,50 @@ signed short charge_fast()
             }
         }
         
-        if (tick > 3600000) /* Time out after about 1 hour */
-        {
-            output_pwm(0);
-            led_on(GREEN);
-            led_off(RED);
-            return 0;
-        }
+        if (seconds > 3600) 
+            return 0;  /* Finish by time out */
         
-        if ((tick & 0x7ff) == 0x7ff) /* approximately 4 second */
+        if (old_sec != seconds) /* Trigger when seconds change */
         {
-            output_pwm(0);
-            _delay_ms(400);
+            old_sec = seconds;
             
-            vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
-            vbat = vbat >> 1;
-            
-            tbat = read_temp();
-            if ((tbat < TEMP_VALID_LOW) || (tbat > TEMP_VALID_HIGH))
+            if ((seconds % 3) == 0) /* V and T check every 2 second */
             {
                 output_pwm(0);
-                return -2; /* Temperature Fault */
-            }
-            if (vbat >= CHG_FAST_STOP_VOLTAGE)
-            {
-                output_pwm(0);
-                led_on(GREEN);
-                led_off(RED);
-                return 0; /* Finish at Target Voltage */
+                _delay_ms(400);
+            
+                vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
+                vbat = vbat >> 1;
+            
+                tbat = read_temp();
+                if ((tbat < TEMP_VALID_LOW) || (tbat > TEMP_VALID_HIGH))
+                {
+                    output_pwm(0);
+                    return -2; /* Temperature Fault */
+                }
+
+                if (vbat >= CHG_FAST_STOP_VOLTAGE)
+                    return 0; /* Finish at Target Voltage */
+            
+                vsum += vbat;
+                if ((seconds % 60) == 0) /* dV check every 30 seconds */
+                {
+
+//                    if (vsum < last_vsum)
+//                        return 0; /* Finish at reversed dV */
+
+                    last_vsum = vsum;
+                    vsum = 0;
+                } 
             }
         }
         
         tick ++;
+        if (tick > 260)
+        {
+            tick -= 260;
+            seconds ++;  /* takes about 1 second (measured) */
+        }
         _delay_ms(1);
     }
 }
@@ -386,7 +401,7 @@ signed short charge_trickle()
                 if (ibat >= CHG_CURRENT_FUSE)
                 {
                     output_pwm(0);
-                    //            return -1; /* Short Current */
+                    return -1; /* Short Current */
                 }
                         
                 if (ibat < CHG_TRICKLE_CURRENT)
@@ -418,7 +433,7 @@ void batt_alert()
 {
     signed char tbat;
     short vbat;
-    unsigned tick = 0;
+    unsigned int tick = 0;
 
     output_pwm(0);
 
