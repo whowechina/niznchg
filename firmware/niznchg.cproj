@@ -28,17 +28,17 @@
     <avrtoolinterface>debugWIRE</avrtoolinterface>
     <avrtool>com.atmel.avrdbg.tool.jtagicemkii</avrtool>
     <com_atmel_avrdbg_tool_jtagicemkii>
-      <ToolType xmlns="">com.atmel.avrdbg.tool.jtagicemkii</ToolType>
-      <ToolName xmlns="">JTAGICE mkII</ToolName>
-      <ToolNumber xmlns="">00A000400126</ToolNumber>
-      <StimuliFile xmlns="">
+      <ToolType>com.atmel.avrdbg.tool.jtagicemkii</ToolType>
+      <ToolName>JTAGICE mkII</ToolName>
+      <ToolNumber>00A000400126</ToolNumber>
+      <StimuliFile>
       </StimuliFile>
-      <Channel xmlns="">
+      <Channel>
         <host>127.0.0.1</host>
-        <port>49322</port>
+        <port>51555</port>
         <ssl>False</ssl>
       </Channel>
-      <ToolOptions xmlns="">
+      <ToolOptions>
         <InterfaceName>debugWIRE</InterfaceName>
         <InterfaceProperties>
           <JtagDbgClock>200000</JtagDbgClock>
