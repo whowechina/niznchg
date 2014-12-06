@@ -7,15 +7,21 @@
 
 #define F_CPU 8000000
 
-typedef unsigned char byte;
+#include <avr/signature.h>
+const char fusedata[] __attribute__ ((section (".fuse"))) =
+{0xE2, 0xDF, 0xFF};
+const char lockbits[] __attribute__ ((section (".lockbits"))) =
+{0xFC};
+
 
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 #include <util/delay.h>
 
-#define NTC_3950 /* NTC Type can be 3950£¬3380 or 3435 */
 
-#define DEBUG 1
+typedef unsigned char byte;
+
+#define NTC_3950 /* NTC Type can be 3950£¬3380 or 3435 */
 
 #if defined(NTC_3950)
 const signed char tref[256] PROGMEM =
@@ -97,8 +103,7 @@ void welcome();
 void detect_batt();
 signed short charge_fast();
 signed short charge_trickle();
-void batt_temp_alert();
-void batt_fuse_alert();
+void batt_alert(char mode);
 
 #define IBAT  (1 << REFS0) | (0x0d << MUX0) /* External VRef, Differential PA1-PA2, Gain 20x */
 #define VBAT  (1 << REFS0) | (2 << MUX0)    /* External VRef, Single-end PA2 */
@@ -114,8 +119,8 @@ void batt_fuse_alert();
 #define TEMP_VALID_HIGH 49
 
 
-#define CHG_FAST_CURRENT 615    /* I * 0.25 ohm / 4.3 * 20 gain / 3.67v * 1023 */
-#define CHG_TRICKLE_CURRENT 330    /* I * 0.25 ohm / 4.3 * 20 gain / 3.67v * 1023 */
+#define CHG_FAST_CURRENT 605    /* I * 0.25 ohm / 4.3 * 20 gain / 3.667v * 1023 */
+#define CHG_TRICKLE_CURRENT 330    /* I * 0.25 ohm / 4.3 * 20 gain / 3.667v * 1023 */
 
 #define CHG_FULL 0
 #define CHG_FUSE -1
@@ -126,7 +131,7 @@ void batt_fuse_alert();
 #define CHG_PWM_MIN 10
 #define CHG_PWM_MAX 254
 
-#define CHG_FAST_STOP_VOLTAGE 905   /* V / 4.3 / 3.67 * 1023 * 101% */
+#define CHG_FAST_STOP_VOLTAGE 904   /* V / 4.3 / 3.667 * 1023 */
 #define CHG_CURRENT_FUSE 1022
 #define CHG_START_THRESHOLD 300  /* detects if charge started */
 #define CHG_CURRENT_TOO_LOW 10   /* detects if battery gone */
@@ -161,12 +166,13 @@ int main(void)
                 continue;
                 
             case CHG_FUSE:
-                batt_fuse_alert();
+                batt_alert(1);
                 continue;
                 
             case CHG_TEMP:            
-                batt_temp_alert();
+                batt_alert(0);
                 continue;
+
             default:
                 continue;
         }
@@ -267,15 +273,15 @@ void led_off(byte led)
 void welcome()
 {
     int i;
-    for (i = 0; i < 3; i ++)
+    for (i = 0; i < 5; i ++)
     {
         led_off(GREEN);
         led_on(RED);
-        _delay_ms(250);
+        _delay_ms(100);
 
         led_off(RED);
         led_on(GREEN);
-        _delay_ms(100);
+        _delay_ms(50);
     }
     led_off(GREEN);
     led_off(RED);
@@ -321,6 +327,8 @@ void detect_batt()
         _delay_ms(150);
     }
 }
+
+#define TICK_PER_SECOND   305
 
 signed short charge_fast()
 {
@@ -406,34 +414,44 @@ signed short charge_fast()
         if (old_sec != seconds) /* Trigger when seconds change */
         {
             old_sec = seconds;
-            
+#ifdef DEBUG
+    led_on(GREEN);
+    _delay_ms(1);
+    led_off(GREEN);
+#endif    
             if ((seconds & 0x03 ) == 0) /* V check every 4 second */
             {
-                output_pwm(0);
+                vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
+                vbat = vbat >> 1;
+                
+                if (vbat > CHG_FAST_STOP_VOLTAGE) /* do stop-and-measure only in later phase */
+                {
+                    output_pwm(0);
 #ifdef DEBUG                
     led_on(GREEN);
 #endif                
-                _delay_ms(400);
-                
+                    _delay_ms(500);
+                    tick += TICK_PER_SECOND / 2;
 #ifdef DEBUG
     led_off(GREEN);
 #endif                
             
-                vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
-                vbat = vbat >> 1;
+                    vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
+                    vbat = vbat >> 1;
             
-                if (vbat >= CHG_FAST_STOP_VOLTAGE)
-                {
-                    output_pwm(0);
-                    return CHG_FULL; /* Finish at Target Voltage */
-                }                
+                    if (vbat >= CHG_FAST_STOP_VOLTAGE)
+                    {
+                        output_pwm(0);
+                        return CHG_FULL; /* Finish at Target Voltage */
+                    }
+                }                    
             }
         }
         
         tick ++;
-        if (tick > 278)
+        if (tick > TICK_PER_SECOND)
         {
-            tick -= 278;
+            tick -= TICK_PER_SECOND;
             seconds ++;  /* takes about 1 second (measured) */
         }
         _delay_ms(1);
@@ -514,45 +532,14 @@ signed short charge_trickle()
     return 0;
 }
 
-void batt_temp_alert()
+void batt_alert(char mode)
 {
     signed char tbat;
     short vbat;
     unsigned int tick = 0;
 
     output_pwm(0);
-    led_off(GREEN);
-
-    while (1)
-    {
-        vbat = read_adc(VBAT) >> 6;
-        tbat = read_temp();
-        
-        if ((vbat < BATT_VALID_LOW ) || (tbat < TEMP_VALID_LOW ))
-        {
-            led_off(RED);
-            break;
-        }
-        
-        if ((tick & 0x01) == 0)
-            led_on(RED);
-        else
-            led_off(RED);
-
-        tick ++;
-        _delay_ms(200);
-    }
-}
-
-void batt_fuse_alert()
-{
-    signed char tbat;
-    short vbat;
-    unsigned int tick = 0;
-
-    output_pwm(0);
-    led_off(GREEN);
-
+    
     while (1)
     {
         vbat = read_adc(VBAT) >> 6;
@@ -568,14 +555,18 @@ void batt_fuse_alert()
         {
             led_on(RED);
             led_off(GREEN);
-        }                
+        }            
         else
         {
-            led_on(GREEN);
             led_off(RED);
+            if (mode)
+            {
+                led_on(GREEN);
+            }                
         }            
-
+            
         tick ++;
         _delay_ms(200);
     }
 }
+
