@@ -16,6 +16,7 @@ const char lockbits[] __attribute__ ((section (".lockbits"))) =
 
 #include <avr/io.h>
 #include <avr/pgmspace.h>
+#include <avr/wdt.h>
 #include <util/delay.h>
 
 
@@ -131,7 +132,7 @@ void batt_alert(char mode);
 #define CHG_PWM_MIN 10
 #define CHG_PWM_MAX 254
 
-#define CHG_FAST_STOP_VOLTAGE 904   /* V / 4.3 / 3.667 * 1023 */
+#define CHG_FAST_STOP_VOLTAGE 903   /* V / 4.3 / 3.667 * 1023 */
 #define CHG_CURRENT_FUSE 1022
 #define CHG_START_THRESHOLD 300  /* detects if charge started */
 #define CHG_CURRENT_TOO_LOW 10   /* detects if battery gone */
@@ -188,6 +189,7 @@ void init()
     init_port();
     init_pwm();
     init_adc();
+    wdt_enable(WDTO_8S);
 }
 
 void init_port()
@@ -282,6 +284,8 @@ void welcome()
         led_off(RED);
         led_on(GREEN);
         _delay_ms(50);
+        
+        wdt_reset();
     }
     led_off(GREEN);
     led_off(RED);
@@ -325,6 +329,7 @@ void detect_batt()
 
         tick ++;
         _delay_ms(150);
+        wdt_reset();
     }
 }
 
@@ -338,6 +343,7 @@ signed short charge_fast()
     short seconds = 0, tick = 0;
     short old_sec = 0;
     short started = 0;
+    short p2cnt = 0;
 
     pwm = CHG_PWM_MIN;
 
@@ -355,7 +361,8 @@ signed short charge_fast()
 
         ibat = ibat >> 2;
 
-        if (ibat >= CHG_CURRENT_FUSE)
+        if ((ibat >= CHG_CURRENT_FUSE) ||
+            ((pwm == CHG_PWM_MIN) && (ibat > CHG_FAST_CURRENT)))
         {
             output_pwm(0);
             return CHG_FUSE; /* Finished because of Short Current */
@@ -419,6 +426,8 @@ signed short charge_fast()
     _delay_ms(1);
     led_off(GREEN);
 #endif    
+            wdt_reset();
+
             if ((seconds & 0x03 ) == 0) /* V check every 4 second */
             {
                 vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
@@ -436,10 +445,12 @@ signed short charge_fast()
     led_off(GREEN);
 #endif                
             
+                    p2cnt ++;
+
                     vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
                     vbat = vbat >> 1;
             
-                    if (vbat >= CHG_FAST_STOP_VOLTAGE)
+                    if ((vbat >= CHG_FAST_STOP_VOLTAGE) || (p2cnt > 75))
                     {
                         output_pwm(0);
                         return CHG_FULL; /* Finish at Target Voltage */
@@ -484,9 +495,6 @@ signed short charge_trickle()
             break;
         }
         
-        _delay_ms(400);
-
-        t ++;
         if ((t & 0x7) == 0)  /* approximately 400ms * 8 = 3.2s */
         {
             led_on(RED);
@@ -526,6 +534,10 @@ signed short charge_trickle()
             led_off(RED);
             output_pwm(0);
         }
+
+        t ++;
+        _delay_ms(400);
+        wdt_reset();
     }
     
     led_off(GREEN);
@@ -567,6 +579,7 @@ void batt_alert(char mode)
             
         tick ++;
         _delay_ms(200);
+        wdt_reset();
     }
 }
 
