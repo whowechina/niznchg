@@ -103,7 +103,7 @@ void led_off(byte led);
 void welcome();
 void detect_batt();
 signed short charge_fast();
-signed short charge_trickle();
+signed short charge_done();
 void batt_alert(char mode);
 
 #define IBAT  (1 << REFS0) | (0x0d << MUX0) /* External VRef, Differential PA1-PA2, Gain 20x */
@@ -121,7 +121,6 @@ void batt_alert(char mode);
 
 
 #define CHG_FAST_CURRENT 605    /* I * 0.25 ohm / 4.3 * 20 gain / 3.667v * 1023 */
-#define CHG_TRICKLE_CURRENT 330    /* I * 0.25 ohm / 4.3 * 20 gain / 3.667v * 1023 */
 
 #define CHG_FULL 0
 #define CHG_FUSE -1
@@ -178,7 +177,7 @@ int main(void)
                 continue;
         }
        
-        charge_trickle();
+        charge_done();
         
         _delay_ms(100);
     }
@@ -333,7 +332,7 @@ void detect_batt()
     }
 }
 
-#define TICK_PER_SECOND   305
+#define TICK_PER_SECOND   305           /* Please adjust this number to match the real time */
 
 signed short charge_fast()
 {
@@ -343,7 +342,6 @@ signed short charge_fast()
     short seconds = 0, tick = 0;
     short old_sec = 0;
     short started = 0;
-    short p2cnt = 0;
 
     pwm = CHG_PWM_MIN;
 
@@ -361,15 +359,17 @@ signed short charge_fast()
 
         ibat = ibat >> 2;
 
+        /* Check if current is too high or out of control */
         if ((ibat >= CHG_CURRENT_FUSE) ||
             ((pwm == CHG_PWM_MIN) && (ibat > CHG_FAST_CURRENT)))
         {
             output_pwm(0);
             return CHG_FUSE; /* Finished because of Short Current */
         }
-        
+
         if (started)
         {        
+            /* if charge has started and current still too low, it means battery removed */
             if (ibat <= CHG_CURRENT_TOO_LOW)
             {
                 output_pwm(0);
@@ -384,19 +384,22 @@ signed short charge_fast()
             }
         }            
         
+        /* Temperature check, temp too low means battery removed */
         tbat = read_temp();
         if (tbat < TEMP_VALID_LOW)
         {
             output_pwm(0);
             return CHG_BATT_GONE;
         }
-                
+
+        /* Temperature check, if temp is too high */
         if (tbat > TEMP_VALID_HIGH)
         {
             output_pwm(0);
             return CHG_TEMP; /* Temperature Fault */
         }
 
+        /* Constant current control */
         if (ibat < CHG_FAST_CURRENT)
         {
             if (pwm < CHG_PWM_MAX)
@@ -412,13 +415,15 @@ signed short charge_fast()
             }
         }
         
+        /* 1 Hour time out check */
         if (seconds > 3600) 
         {
             output_pwm(0);
             return CHG_FULL; /* Finish by Timeout */
         }
-                
-        if (old_sec != seconds) /* Trigger when seconds change */
+
+        /* Phase two: 50 minutes later */
+        if ((old_sec != seconds) && (seconds > 3000))
         {
             old_sec = seconds;
 #ifdef DEBUG
@@ -428,13 +433,15 @@ signed short charge_fast()
 #endif    
             wdt_reset();
 
-            if ((seconds & 0x03 ) == 0) /* V check every 4 second */
+            if ((seconds & 0x03 ) == 0) /* Voltage check every 4 second */
             {
+                /* Voltage measurement, power connected */
                 vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
                 vbat = vbat >> 1;
                 
-                if (vbat > CHG_FAST_STOP_VOLTAGE) /* do stop-and-measure only in later phase */
+                if (vbat > CHG_FAST_STOP_VOLTAGE)
                 {
+                    /* If the voltage reaches target voltage, do disconnect-and-measure */
                     output_pwm(0);
 #ifdef DEBUG                
     led_on(GREEN);
@@ -444,16 +451,15 @@ signed short charge_fast()
 #ifdef DEBUG
     led_off(GREEN);
 #endif                
-            
-                    p2cnt ++;
-
+                    /* Voltage measurement, power disconnected */
                     vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
                     vbat = vbat >> 1;
             
-                    if ((vbat >= CHG_FAST_STOP_VOLTAGE) || (p2cnt > 75))
+                    /* Check if it really reaches target voltage */
+                    if (vbat >= CHG_FAST_STOP_VOLTAGE)
                     {
                         output_pwm(0);
-                        return CHG_FULL; /* Finish at Target Voltage */
+                        return CHG_FULL; /* Finish at target voltage */
                     }
                 }                    
             }
@@ -469,21 +475,16 @@ signed short charge_fast()
     }
 }
 
-signed short charge_trickle()
+signed short charge_done()
 {
     signed char tbat;
     short vbat;
-    short ibat;
     unsigned t = 0;
-    short i;
-    unsigned char pwm;
     
     output_pwm(0);
     
     led_on(GREEN);
     led_off(RED);
-    
-    pwm = CHG_PWM_MIN;
     
     while (1)
     {
@@ -492,47 +493,8 @@ signed short charge_trickle()
         
         if ((vbat < BATT_VALID_LOW ) || (tbat < TEMP_VALID_LOW ) || (tbat > TEMP_VALID_HIGH))
         {
+            /* Battery removed */
             break;
-        }
-        
-        if ((t & 0x7) == 0)  /* approximately 400ms * 8 = 3.2s */
-        {
-            led_on(RED);
-            for (i = 0; i < 150; i ++)
-            {
-                output_pwm(pwm);
-                        
-                ibat = (read_adc(IBAT) >> 6);
-                ibat += (read_adc(IBAT) >> 6);
-                ibat += (read_adc(IBAT) >> 6);
-                ibat += (read_adc(IBAT) >> 6);
-
-                ibat = ibat >> 2;
-
-                if (ibat >= CHG_CURRENT_FUSE)
-                {
-                    output_pwm(0);
-                    return -1; /* Short Current */
-                }
-                        
-                if (ibat < CHG_TRICKLE_CURRENT)
-                {
-                    if (pwm < CHG_PWM_MAX)
-                    {
-                        pwm ++;
-                    }
-                }
-                else if (ibat > CHG_TRICKLE_CURRENT)
-                {
-                    if (pwm > CHG_PWM_MIN)
-                    {
-                        pwm --;
-                    }
-                }
-                _delay_ms(1);
-            }
-            led_off(RED);
-            output_pwm(0);
         }
 
         t ++;
