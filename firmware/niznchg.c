@@ -332,7 +332,7 @@ void detect_batt()
     }
 }
 
-#define TICK_PER_SECOND   305           /* Please adjust this number to match the real time */
+#define TICK_PER_SECOND   304           /* Please adjust this number to match the real time */
 
 signed short charge_fast()
 {
@@ -422,18 +422,19 @@ signed short charge_fast()
             return CHG_FULL; /* Finish by Timeout */
         }
 
-        /* Phase two: 50 minutes later */
-        if ((old_sec != seconds) && (seconds > 3000))
+        if (old_sec != seconds)
         {
             old_sec = seconds;
+            wdt_reset();
+
 #ifdef DEBUG
     led_on(GREEN);
     _delay_ms(1);
     led_off(GREEN);
 #endif    
-            wdt_reset();
 
-            if ((seconds & 0x03 ) == 0) /* Voltage check every 4 second */
+            /* Phase two: 50 minutes later */
+            if ((seconds > 3000) && ((seconds & 0x03) == 0)) /* Voltage check every 4 second */
             {
                 /* Voltage measurement, power connected */
                 vbat = (read_adc(VBAT) >> 6) + (read_adc(VBAT) >> 6);
