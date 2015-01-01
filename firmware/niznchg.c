@@ -60,21 +60,28 @@ void batt_alert(char mode);
 #define PHASE_1_DURATION (50 * 60)  /* In seconds */
 #define CHG_TIMEOUT (60 * 60) /* In seconds */
 
-#define CHG_FAST_CURRENT 605    /* I * 0.25 ohm / 4.3 * 20 gain / 3.667v * 1023 */
+
+#define CHG_FAST_CURRENT 465L    /* 检流电阻上的电压值 (mV)，也就是目标电流 * 0.25 4.3 * 20 gain / 3.667v * 1023 */
+#define CHG_SENSE_RATIO 1298L    /* 从检流电阻的电压值转换为内部 ADC 读取值的系数， x = 1 / 4.3 * 20 / 3.667 * 1023 =  */
+
+#ifndef CHG_CURRENT_ADJSUT
+#define CHG_CURRENT_ADJSUT 0 /* 非常重要：观察检流电阻上的电压如果误差太大，则需要设置这个值 (正负百分比) 来抵消误差 */
+#endif
 
 #define CHG_FULL 0
 #define CHG_FUSE -1
 #define CHG_TEMP -2
 #define CHG_OTHER -3
-#define CHG_BATT_GONE -4
+#define CHG_BATT_FAIL -4
+#define CHG_BATT_GONE -5
 
 #define CHG_PWM_MIN 10
 #define CHG_PWM_MAX 254
 
 #define CHG_FAST_STOP_VOLTAGE 900   /* V / 4.3 / 3.667 * 1023 */
 #define CHG_CURRENT_FUSE 1022
-#define CHG_START_THRESHOLD 300  /* detects if charge started */
-#define CHG_CURRENT_TOO_LOW 10   /* detects if battery gone */
+
+#define CHG_CURRENT_TOO_LOW 10   /* detects battery failure (break) */
 
 
 int main(void)
@@ -104,7 +111,11 @@ int main(void)
                 
             case CHG_BATT_GONE:
                 continue;
-                
+            
+            case CHG_BATT_FAIL:
+                batt_alert(0);
+                break;
+
             case CHG_FUSE:
                 batt_alert(1);
                 continue;
@@ -281,10 +292,12 @@ signed short charge_fast()
     signed char tbat;
     short seconds = 0, tick = 0;
     short old_sec = 0;
-    short started = 0;
+    short target_current;
 
     pwm = CHG_PWM_MIN;
 
+    target_current = CHG_FAST_CURRENT * (100 + (CHG_CURRENT_ADJSUT)) / 100 * CHG_SENSE_RATIO / 1000;
+    
     led_off(GREEN);
     led_on(RED);
     
@@ -307,22 +320,12 @@ signed short charge_fast()
             return CHG_FUSE; /* Finished because of Short Current */
         }
 
-        if (started)
-        {        
-            /* if charge has started and current still too low, it means battery removed */
-            if (ibat <= CHG_CURRENT_TOO_LOW)
-            {
-                output_pwm(0);
-                return CHG_BATT_GONE;
-            }
-        }
-        else
+        /* if charge has started and current still too low, it means battery failure */
+        if ((pwm == CHG_PWM_MAX) && (ibat <= CHG_CURRENT_TOO_LOW))
         {
-            if (ibat > CHG_START_THRESHOLD)
-            {
-                started = 1;
-            }
-        }            
+            output_pwm(0);
+            return CHG_BATT_FAIL;
+        }
         
         /* Temperature check, temp too low means battery removed */
         tbat = read_temp();
@@ -336,18 +339,18 @@ signed short charge_fast()
         if (tbat > TEMP_VALID_HIGH)
         {
             output_pwm(0);
-            return CHG_TEMP; /* Temperature Fault */
+            return CHG_FULL; /* We think Temperature Fault as Charge Full */
         }
 
         /* Constant current control */
-        if (ibat < CHG_FAST_CURRENT)
+        if (ibat < target_current)
         {
             if (pwm < CHG_PWM_MAX)
             {
                 pwm ++;
             }
         }
-        else if (ibat > CHG_FAST_CURRENT)
+        else if (ibat > target_current)
         {
             if (pwm > CHG_PWM_MIN)
             {
