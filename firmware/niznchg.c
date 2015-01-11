@@ -81,7 +81,7 @@ void batt_alert(char mode);
 #define CHG_FAST_STOP_VOLTAGE 900   /* V / 4.3 / 3.667 * 1023 */
 #define CHG_CURRENT_FUSE 1022
 
-#define CHG_CURRENT_TOO_LOW 10   /* detects battery failure (break) */
+#define CHG_CURRENT_TOO_LOW 50   /* detects battery failure (break) */
 
 
 int main(void)
