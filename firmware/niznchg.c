@@ -424,7 +424,7 @@ signed short charge_done()
         vbat = read_adc(VBAT) >> 6;
         tbat = read_temp();
         
-        if ((vbat < BATT_VALID_LOW ) || (tbat < TEMP_VALID_LOW ) || (tbat > TEMP_VALID_HIGH))
+        if ((vbat < BATT_VALID_LOW ) || (tbat < TEMP_VALID_LOW ))
         {
             /* Battery removed */
             break;
