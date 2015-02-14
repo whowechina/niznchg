@@ -5,14 +5,14 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "niznchg", "niznchg.cproj", 
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|AVR = Debug|AVR
-		Release|AVR = Release|AVR
+		no_trim_pot|AVR = no_trim_pot|AVR
+		trim_pot|AVR = trim_pot|AVR
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Debug|AVR.ActiveCfg = Debug|AVR
-		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Debug|AVR.Build.0 = Debug|AVR
-		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Release|AVR.ActiveCfg = Release|AVR
-		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.Release|AVR.Build.0 = Release|AVR
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.no_trim_pot|AVR.ActiveCfg = no_trim_pot|AVR
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.no_trim_pot|AVR.Build.0 = no_trim_pot|AVR
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.trim_pot|AVR.ActiveCfg = trim_pot|AVR
+		{BCA33942-E993-4EF0-87D5-08D3BB7A87DA}.trim_pot|AVR.Build.0 = trim_pot|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

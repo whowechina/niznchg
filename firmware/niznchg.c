@@ -47,6 +47,7 @@ void batt_alert(char mode);
 #define IBAT  (1 << REFS0) | (0x0d << MUX0) /* External VRef, Differential PA1-PA2, Gain 20x */
 #define VBAT  (1 << REFS0) | (2 << MUX0)    /* External VRef, Single-end PA2 */
 #define TBAT  (1 << REFS0) | (3 << MUX0)    /* External VRef, Single-end PA3 */
+#define IADJ  (1 << REFS0) | (7 << MUX0)    /* External VRef, Single-end PA7 */
 
 #define RED     PORTB1 
 #define GREEN   PORTB0
@@ -61,7 +62,7 @@ void batt_alert(char mode);
 #define CHG_TIMEOUT (60 * 60) /* In seconds */
 
 
-#define CHG_FAST_CURRENT 465L    /* 检流电阻上的电压值 (mV)，也就是目标电流 * 0.25 4.3 * 20 gain / 3.667v * 1023 */
+#define CHG_FAST_CURRENT 470L    /* 检流电阻上的电压值 (mV)，也就是目标电流 * 0.25 4.3 * 20 gain / 3.667v * 1023 */
 #define CHG_SENSE_RATIO 1298L    /* 从检流电阻的电压值转换为内部 ADC 读取值的系数， x = 1 / 4.3 * 20 / 3.667 * 1023 =  */
 
 #ifndef CHG_CURRENT_ADJSUT
@@ -285,6 +286,26 @@ void detect_batt()
 
 #define TICK_PER_SECOND   304     /* This number should be adjusted to match the real time */
 
+short calc_target_current()
+{
+    long cur = CHG_FAST_CURRENT * (100 + (CHG_CURRENT_ADJSUT)) / 100 * CHG_SENSE_RATIO / 1000;
+
+#ifdef WITH_TRIM_POT
+	short adj;
+
+	adj = (read_adc(IADJ) >> 10); /* Range in [0..63] */
+
+	if ((adj < 2) || (adj > 61))
+	{
+		adj = 32;
+	}
+
+	cur = (cur * (100 + adj - 32) / 100);  /* Adjust range: -32% to 32% */
+#endif
+	
+    return cur;
+}
+
 signed short charge_fast()
 {
     unsigned char pwm;
@@ -296,8 +317,8 @@ signed short charge_fast()
 
     pwm = CHG_PWM_MIN;
 
-    target_current = CHG_FAST_CURRENT * (100 + (CHG_CURRENT_ADJSUT)) / 100 * CHG_SENSE_RATIO / 1000;
-    
+	target_current = calc_target_current();
+	
     led_off(GREEN);
     led_on(RED);
     
@@ -368,6 +389,9 @@ signed short charge_fast()
         if (old_sec != seconds)
         {
             old_sec = seconds;
+
+			target_current = calc_target_current();
+			
             wdt_reset();
 
 #ifdef CHG_FLASH
