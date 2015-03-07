@@ -56,6 +56,7 @@ void batt_alert(char mode);
 #define VOLT_VALID_LOW 5         /* V / 4.3 / 3.667 * 1023 */
 #define VOLT_VALID_HIGH 970      /* V / 4.3 / 3.667 * 1023 */
 
+
 #define TEMP_VALID_LOW -30
 #define TEMP_VALID_HIGH 70
 
@@ -126,7 +127,7 @@ int main(void)
                 continue;
                 
             case CHG_TEMP:            
-                batt_alert(0);
+                batt_alert(1);
                 continue;
 
             default:
@@ -445,7 +446,6 @@ signed short charge_fast()
 signed short charge_done()
 {
     signed char tbat;
-    short vbat;
     unsigned t = 0;
     
     output_pwm(0);
@@ -455,11 +455,10 @@ signed short charge_done()
     
     while (1)
     {
-        vbat = read_adc(VBAT) >> 6;
         tbat = read_temp();
         
         /* Battery removal detection */
-        if ((vbat < VOLT_VALID_LOW ) && (tbat < TEMP_VALID_LOW))
+        if (tbat < TEMP_VALID_LOW)
         {
             break;
         }
@@ -467,7 +466,7 @@ signed short charge_done()
 		/* Temperature check, if temp is too high */
 		if (tbat > TEMP_CRITICAL)
 		{
-			batt_alert(0);
+			batt_alert(1);
 		}
 
         t ++;
@@ -482,18 +481,16 @@ signed short charge_done()
 void batt_alert(char mode)
 {
     signed char tbat;
-    short vbat;
     unsigned int tick = 0;
 
     output_pwm(0);
     
     while (1)
     {
-        vbat = read_adc(VBAT) >> 6;
         tbat = read_temp();
 
 		/* Battery removal detection */        
-        if ((vbat < VOLT_VALID_LOW ) || (tbat < TEMP_VALID_LOW))
+        if (tbat < TEMP_VALID_LOW)
         {
             led_off(RED);
             break;
