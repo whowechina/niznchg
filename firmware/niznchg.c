@@ -53,10 +53,14 @@ void batt_alert(char mode);
 #define GREEN   PORTB0
 
 
-#define BATT_VALID_LOW 5         /* V / 4.3 / 3.667 * 1023 */
-#define BATT_VALID_HIGH 970      /* V / 4.3 / 3.667 * 1023 */
+#define VOLT_VALID_LOW 5         /* V / 4.3 / 3.667 * 1023 */
+#define VOLT_VALID_HIGH 970      /* V / 4.3 / 3.667 * 1023 */
+
 #define TEMP_VALID_LOW -30
-#define TEMP_VALID_HIGH 49
+#define TEMP_VALID_HIGH 70
+
+#define TEMP_FULL      49		/* Treated as Battery full */
+#define TEMP_CRITICAL  60		/* Treated as Battery temp too high */
 
 #define PHASE_1_DURATION (50 * 60)  /* In seconds */
 #define CHG_TIMEOUT (60 * 60) /* In seconds */
@@ -257,8 +261,7 @@ void detect_batt()
         vbat = read_adc(VBAT) >> 6;
         tbat = read_temp();
         
-        if ((vbat >= BATT_VALID_LOW ) && (vbat <= BATT_VALID_HIGH)
-            && (tbat >= TEMP_VALID_LOW ) && (tbat <= TEMP_VALID_HIGH))
+        if ((vbat >= VOLT_VALID_LOW ) && (vbat <= VOLT_VALID_HIGH) && (tbat >= TEMP_VALID_LOW))
         {
             detect_count ++;
             
@@ -348,7 +351,7 @@ signed short charge_fast()
             return CHG_BATT_FAIL;
         }
         
-        /* Temperature check, temp too low means battery removed */
+        /* Battery removal check by temperature */
         tbat = read_temp();
         if (tbat < TEMP_VALID_LOW)
         {
@@ -356,11 +359,18 @@ signed short charge_fast()
             return CHG_BATT_GONE;
         }
 
-        /* Temperature check, if temp is too high */
-        if (tbat > TEMP_VALID_HIGH)
+		/* Temperature check, if temp is too high */
+		if (tbat > TEMP_CRITICAL)
+		{
+			output_pwm(0);  /* Reaching temperature level 2 is critical, battery is too hot */
+			return CHG_TEMP;
+		}
+
+        /* Battery full check by temperature */
+        if (tbat > TEMP_FULL)
         {
             output_pwm(0);
-            return CHG_FULL; /* We think Temperature Fault as Charge Full */
+            return CHG_FULL; /* Reaching temperature level 1 is safe, it means battery full */
         }
 
         /* Constant current control */
@@ -448,11 +458,17 @@ signed short charge_done()
         vbat = read_adc(VBAT) >> 6;
         tbat = read_temp();
         
-        if ((vbat < BATT_VALID_LOW ) || (tbat < TEMP_VALID_LOW ))
+        /* Battery removal detection */
+        if ((vbat < VOLT_VALID_LOW ) && (tbat < TEMP_VALID_LOW))
         {
-            /* Battery removed */
             break;
         }
+
+		/* Temperature check, if temp is too high */
+		if (tbat > TEMP_CRITICAL)
+		{
+			batt_alert(0);
+		}
 
         t ++;
         _delay_ms(400);
@@ -475,8 +491,9 @@ void batt_alert(char mode)
     {
         vbat = read_adc(VBAT) >> 6;
         tbat = read_temp();
-        
-        if ((vbat < BATT_VALID_LOW ) || (tbat < TEMP_VALID_LOW ))
+
+		/* Battery removal detection */        
+        if ((vbat < VOLT_VALID_LOW ) || (tbat < TEMP_VALID_LOW))
         {
             led_off(RED);
             break;
