@@ -53,7 +53,7 @@ void batt_alert(char mode);
 #define GREEN   PORTB0
 
 
-#define VOLT_VALID_LOW 5         /* V / 4.3 / 3.667 * 1023 */
+#define VOLT_VALID_LOW 0         /* V / 4.3 / 3.667 * 1023 */
 #define VOLT_VALID_HIGH 970      /* V / 4.3 / 3.667 * 1023 */
 
 
@@ -61,7 +61,7 @@ void batt_alert(char mode);
 #define TEMP_VALID_HIGH 70
 
 #define TEMP_FULL      49		/* Treated as Battery full */
-#define TEMP_CRITICAL  60		/* Treated as Battery temp too high */
+#define TEMP_CRITICAL  55		/* Treated as Battery temp too high */
 
 #define PHASE_1_DURATION (50 * 60)  /* In seconds */
 #define CHG_TIMEOUT (60 * 60) /* In seconds */
@@ -92,12 +92,24 @@ void batt_alert(char mode);
 
 int main(void)
 {
+#ifndef DIAGNOSE
     signed short ret;
+#endif
     
     init();
 
     welcome();
-    
+
+#ifdef DIAGNOSE
+	while (1)
+	{
+		led_on(RED);
+		led_on(GREEN);
+		output_pwm(128);
+		_delay_ms(200);
+		wdt_reset();
+	}
+#else
     while (1)
     {
         detect_batt();
@@ -138,6 +150,8 @@ int main(void)
         
         _delay_ms(100);
     }
+#endif
+
 }
 
 void init()
