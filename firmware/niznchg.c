@@ -28,13 +28,13 @@ void init_port();
 void init_adc();
 void init_pwm();
 
+/* Hardware Controls */
 void output_pwm(unsigned short pow);
-
 unsigned short read_adc(byte source);
-
 void led_on(byte led);
 void led_off(byte led);
 
+/* Charge Procedures */
 void detect_batt();
 byte charge();
 void charge_done();
@@ -62,37 +62,41 @@ void batt_alert();
 #define CHG_CURRENT_FUSE 500      /* Current exceeds FUSE means short-current happens. */
 
 #define BATT_VOLT_THRESHOLD 600   /* Voltage below THRESHOLD means battery removed. */
-#define BATT_VOLT_FUSE 912		  /* Voltage exceeds FUSE means charge is done. */
+#define BATT_VOLT_TARGET 905      /* Voltage reaching TARGET means charge is done. */
+
+#define CHG_VOLT_DROP_THRESHOLD 880 /* Voltage higher than threshold when applying reverse detection. */
+#define CHG_VOLT_DROP_DELTA     15  /* Voltage delta for reverse detection. */
+#define CHG_VOLT_DROP_COUNT     5 
 
 #define CHG_TIMEOUT 3600 * 4     /* in seconds */
 #define ALERT_MINIMAL_TIME 10    /* in seconds */
 
 int main(void)
 {
-	signed char ret;
-	
-    init();		/* Initialize everything including ADC, IO port, etc. */
+    signed char ret;
+    
+    init();        /* Initialize everything including ADC, IO port, etc. */
 
     while (1)
     {
         detect_batt();   /* Until we see a battery connected */
         ret = charge();  /* Charge mode */
-		output_pwm(0);   /* Charge done, make sure output is off */
+        output_pwm(0);   /* Charge done, make sure output is off */
         switch (ret)
         {
-            case CHG_DONE_FULL:       /* If it is a normal finish,      */
-                led_on(GREEN);   /* we light on GREEN.             */
-				charge_done();   /* Then wait for battery removal. */
+            case CHG_DONE_FULL:  /* If it is a normal finish,      */
+                led_on(GREEN);   /* light on GREEN.             */
+                charge_done();   /* Then wait for battery removal. */
                 break;
 
-            case CHG_ERR_FUSE:       /* If something wrong with the charge, */
-                batt_alert();	 /* alert and wait for battery removal. */
+            case CHG_ERR_FUSE:   /* If something wrong with the charge, */
+                batt_alert();     /* alert and wait for battery removal. */
                 break;
                 
             default:
                 break;
         }
-		wdt_reset();
+        wdt_reset();
     }
 }
 
@@ -117,7 +121,7 @@ void init_port()
 
 void init_pwm()
 {
-	/* Fast PWM Mode, Prescaler set to 'div/1', initially off. */
+    /* Fast PWM Mode, Prescaler set to 'div/1', initially off. */
     TCCR0A = 0 << COM0A0 | 3 << WGM00;
     TCCR0B = 0 << WGM02 | 1 << CS00;
 }
@@ -132,23 +136,23 @@ void init_adc()
 
 unsigned short read_adc(byte source)
 {
-	unsigned short result = 0;
-	int i;
-	
+    unsigned short result = 0;
+    int i;
+    
     ADMUX = source;
     
     /* Give up the first conversion */
     ADCSRA |= (1 << ADSC);
     loop_until_bit_is_clear(ADCSRA, ADSC);
     
-	/* Get average result from 4 conversions */
-	for (i = 0; i < 4; i ++)
+    /* Get average result from 4 conversions */
+    for (i = 0; i < 4; i ++)
     {
-		ADCSRA |= (1 << ADSC);
-		loop_until_bit_is_clear(ADCSRA, ADSC);
-		
-		result += ADCL | (ADCH << 8);
-	}
+        ADCSRA |= (1 << ADSC);
+        loop_until_bit_is_clear(ADCSRA, ADSC);
+        
+        result += ADCL | (ADCH << 8);
+    }
     
     return result >> 2;
 }
@@ -181,58 +185,58 @@ void detect_batt()
 {
     short tick = 0;
     unsigned short ibat;
-	
-	led_off(RED);
+    
+    led_off(RED);
 
     output_pwm(CHG_PWM_TEST);  /* Turn on output to detect battery. */
    
     while (1)
     {
         ibat = read_adc(IBAT);
-		
-		if (ibat > CHG_CURRENT_THRESHOLD)  /* Battery connected if we see current. */
-			return;
-			
-		/* Flash the green LED indicating "Waiting for Battery" */
-		(tick & 0x07) ? led_off(GREEN) : led_on(GREEN);
+        
+        if (ibat > CHG_CURRENT_THRESHOLD)  /* Battery connected if we see current. */
+            return;
+            
+        /* Flash the green LED indicating "Waiting for Battery" */
+        (tick & 0x07) ? led_off(GREEN) : led_on(GREEN);
 
         _delay_ms(200);
         tick ++;
-		
+        
         wdt_reset();
     }
 }
 
 short calc_target_current()
 {
-	short adj;
+    short adj;
     long cur = CHG_CURRENT * CHG_SENSE_RATIO / 1000;
 
-	adj = (read_adc(IADJ) >> 4); /* Range in [0..63] */
+    adj = (read_adc(IADJ) >> 4); /* Range in [0..63] */
 
-	if ((adj < 2) || (adj > 61))
-	{
-		adj = 32;
-	}
+    if ((adj < 2) || (adj > 61))
+    {
+        adj = 32;
+    }
 
-	cur = (cur * (100 + adj - 32) / 100);  /* Adjust range: -32% to 32% */
-	
+    cur = (cur * (100 + adj - 32) / 100);  /* Adjust range: -32% to 32% */
+    
     return cur;
 }
-
 
 byte charge()
 {
     byte pwm;
-    short ibat, vbat;
+    short ibat, vbat, peak = 0;
     short seconds = 0, tick = 0;
     short old_sec = 0;
     short target_current;
+    byte revcount = 0;
 
     pwm = CHG_PWM_TEST;
 
-	target_current = calc_target_current();
-	
+    target_current = calc_target_current();
+    
     led_off(GREEN);
     led_on(RED);
     
@@ -241,7 +245,7 @@ byte charge()
         output_pwm(pwm);
         
         ibat = read_adc(IBAT);
-		vbat = read_adc(VBAT);
+        vbat = read_adc(VBAT);
 
         /* Check if current is too high or out of control */
         if ((ibat >= CHG_CURRENT_FUSE) ||
@@ -252,34 +256,50 @@ byte charge()
         }
 
         /* Battery removal check*/
-		if (ibat < CHG_CURRENT_THRESHOLD)
-			return CHG_ERR_BATT_GONE;
+        if (ibat < CHG_CURRENT_THRESHOLD)
+            return CHG_ERR_BATT_GONE;
 
         /* Constant current control */
         if ((ibat < target_current) && (pwm < CHG_PWM_MAX))
-	        pwm ++;
+            pwm ++;
 
         if ((ibat > target_current) && (pwm > CHG_PWM_MIN))
             pwm --;
-		
+        
         /* Timeout and finish voltage check */
-        if ((seconds > CHG_TIMEOUT) || (vbat > BATT_VOLT_FUSE))
+        if ((seconds > CHG_TIMEOUT) || (vbat > BATT_VOLT_TARGET))
             return CHG_DONE_FULL; /* Finish */
+
+        /* Voltage reverse check when max voltage is higher than threshold. */
+        if (peak > CHG_VOLT_DROP_THRESHOLD)
+        {
+            if (vbat < peak - CHG_VOLT_DROP_DELTA)
+                revcount ++;
+            else
+                revcount = 0;
+            
+            if (revcount > CHG_VOLT_DROP_COUNT)
+                return CHG_DONE_FULL;
+        }
+        
+        /* Update the peak voltage, increase by 1 to avoid voltage jump. */
+        if (peak < vbat)
+            peak ++;
 
         if (old_sec != seconds)
         {
             old_sec = seconds;
-			target_current = calc_target_current();
+            target_current = calc_target_current();
             wdt_reset();
 
-			if (flash_while_charging)
-				led_on(GREEN);
-			_delay_ms(1);
-			if (flash_while_charging)
-				led_off(GREEN);
+            if (flash_while_charging)
+                led_on(GREEN);
+            _delay_ms(1);
+            if (flash_while_charging)
+                led_off(GREEN);
         }
 
-#define TICK_PER_SECOND   305  /* Should be adjusted to match the real time */
+#define TICK_PER_SECOND   304  /* Should be adjusted to match the real time */
 
         tick ++;
         if (tick > TICK_PER_SECOND)
@@ -300,16 +320,16 @@ void charge_done()
     
     while (1)
     {
-		/* Battery removal detection */
-		if (read_adc(VBAT) < BATT_VOLT_THRESHOLD)
-			return;
-		
-		/* Short current detection */
-		if (read_adc(IBAT) > CHG_CURRENT_FUSE)
-		{
-			batt_alert();
-			return;
-		}
+        /* Battery removal detection */
+        if (read_adc(VBAT) < BATT_VOLT_THRESHOLD)
+            return;
+        
+        /* Short current detection */
+        if (read_adc(IBAT) > CHG_CURRENT_FUSE)
+        {
+            batt_alert();
+            return;
+        }
 
         _delay_ms(200);
         wdt_reset();
@@ -321,25 +341,25 @@ void charge_done()
 void batt_alert()
 {
     byte tick = 0;
-	byte can_quit = 0;
-	
+    byte can_quit = 0;
+    
     output_pwm(0);
     
     while (1)
     {
-		if (tick > ALERT_MINIMAL_TIME * 5)
-			can_quit = 1;
-		
-		/* Battery removal detection */        
-		if ((can_quit) && (read_adc(VBAT) < BATT_VOLT_THRESHOLD))
-			return;
-		
-		led_on((tick & 0x01) ? RED : GREEN);
-		led_off((tick & 0x01) ? GREEN : RED);
+        if (tick > ALERT_MINIMAL_TIME * 5)
+            can_quit = 1;
+        
+        /* Battery removal detection */        
+        if ((can_quit) && (read_adc(VBAT) < BATT_VOLT_THRESHOLD))
+            return;
+        
+        led_on((tick & 0x01) ? RED : GREEN);
+        led_off((tick & 0x01) ? GREEN : RED);
             
         _delay_ms(200);
         tick ++;
-		
+        
         wdt_reset();
     }
 }
