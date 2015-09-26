@@ -5,7 +5,7 @@
  *  Author: whowe
  */ 
 
-#define F_CPU 8000000
+#define F_CPU 9600000
 
 #include <avr/signature.h>
 const char fusedata[] __attribute__ ((section (".fuse"))) =
@@ -31,8 +31,8 @@ void init_pwm();
 /* Hardware Controls */
 void output_pwm(unsigned short pow);
 unsigned short read_adc(byte source);
-void led_on(byte led);
-void led_off(byte led);
+void led_on();
+void led_off();
 
 /* Charge Procedures */
 void detect_batt();
@@ -42,10 +42,8 @@ void batt_alert();
 
 #define IBAT  (1 << REFS0) | (0x0d << MUX0) /* External VRef, Differential PA1-PA2, Gain 20x */
 #define VBAT  (1 << REFS0) | (2 << MUX0)    /* External VRef, Single-end PA2 */
-#define IADJ  (1 << REFS0) | (7 << MUX0)    /* External VRef, Single-end PA7 */
 
-#define RED     PORTB1 
-#define GREEN   PORTB0
+#define LED PORTB1 
 
 #define CHG_CURRENT 80L    /* 检流电阻上的电压值 (mV)，也就是目标电流 * 0.25 */
 #define CHG_SENSE_RATIO 1298L    /* 从检流电阻的电压值转换为内部 ADC 读取值的系数， x = 1 / 4.3 * 20 / 3.667 * 1023 =  */
@@ -85,7 +83,7 @@ int main(void)
         switch (ret)
         {
             case CHG_DONE_FULL:  /* If it is a normal finish,      */
-                led_on(GREEN);   /* light on GREEN.             */
+                led_on();   /* light on GREEN.             */
                 charge_done();   /* Then wait for battery removal. */
                 break;
 
@@ -111,12 +109,10 @@ void init()
 void init_port()
 {
     /* Clear Output */
-    PORTA = 0x00;
     PORTB = 0x00;
     
-    /* PA[7..0] Input, PB2 as PWM Out, LEDs out */
-    DDRA = 0x00;
-    DDRB = 1 << DDB2 | 1 << RED | 1 << GREEN;
+    /* PB0 as PWM Out, LED out */
+    DDRB = 1 << DDB0 | 1 << LED;
 }
 
 void init_pwm()
@@ -171,14 +167,14 @@ void output_pwm(unsigned short pow)
     }
 }
 
-void led_on(byte led)
+void led_on()
 {
-    PORTB |= (1 << led);
+    PORTB |= (1 << LED);
 }
 
-void led_off(byte led)
+void led_off()
 {
-    PORTB &= ~(1 << led);
+    PORTB &= ~(1 << LED);
 }
 
 void detect_batt()
@@ -186,7 +182,7 @@ void detect_batt()
     short tick = 0;
     unsigned short ibat;
     
-    led_off(RED);
+    led_off();
 
     output_pwm(CHG_PWM_TEST);  /* Turn on output to detect battery. */
    
@@ -198,30 +194,13 @@ void detect_batt()
             return;
             
         /* Flash the green LED indicating "Waiting for Battery" */
-        (tick & 0x07) ? led_off(GREEN) : led_on(GREEN);
+        (tick & 0x07) ? led_off() : led_on();
 
         _delay_ms(200);
         tick ++;
         
         wdt_reset();
     }
-}
-
-short calc_target_current()
-{
-    short adj;
-    long cur = CHG_CURRENT * CHG_SENSE_RATIO / 1000;
-
-    adj = (read_adc(IADJ) >> 4); /* Range in [0..63] */
-
-    if ((adj < 2) || (adj > 61))
-    {
-        adj = 32;
-    }
-
-    cur = (cur * (100 + adj - 32) / 100);  /* Adjust range: -32% to 32% */
-    
-    return cur;
 }
 
 byte charge()
@@ -235,10 +214,9 @@ byte charge()
 
     pwm = CHG_PWM_TEST;
 
-    target_current = calc_target_current();
+    target_current = CHG_CURRENT * CHG_SENSE_RATIO / 1000;
     
-    led_off(GREEN);
-    led_on(RED);
+    led_on();
     
     while (1)
     {
@@ -289,14 +267,13 @@ byte charge()
         if (old_sec != seconds)
         {
             old_sec = seconds;
-            target_current = calc_target_current();
             wdt_reset();
 
             if (flash_while_charging)
-                led_on(GREEN);
+                led_on();
             _delay_ms(1);
             if (flash_while_charging)
-                led_off(GREEN);
+                led_off();
         }
 
 #define TICK_PER_SECOND   304  /* Should be adjusted to match the real time */
@@ -315,9 +292,6 @@ void charge_done()
 {
     output_pwm(0);
     
-    led_on(GREEN);
-    led_off(RED);
-    
     while (1)
     {
         /* Battery removal detection */
@@ -335,7 +309,7 @@ void charge_done()
         wdt_reset();
     }
     
-    led_off(GREEN);
+    led_off();
 }
 
 void batt_alert()
@@ -354,9 +328,6 @@ void batt_alert()
         if ((can_quit) && (read_adc(VBAT) < BATT_VOLT_THRESHOLD))
             return;
         
-        led_on((tick & 0x01) ? RED : GREEN);
-        led_off((tick & 0x01) ? GREEN : RED);
-            
         _delay_ms(200);
         tick ++;
         
