@@ -54,15 +54,12 @@ void batt_alert();
 
 #define CHG_CURRENT_THRESHOLD 10  /* Current exceeds THRESHOLD means battery exists. */
 #define CHG_CURRENT_MAX 100       /* Current exceeds MAX with PWM_MIN is out of control. */
-#define CHG_CURRENT_FUSE 150      /* Current exceeds FUSE means short-current happens. */
 
-#define BATT_REMOVAL_THRESHOLD 200   /* Voltage below THRESHOLD means battery removed. */
+#define BATT_REMOVAL_THRESHOLD 400   /* Voltage below THRESHOLD means battery removed. */
 #define BATT_REMOVAL_DROP 50         /* Voltage drop greater than DROP means battery removed. */
 #define BATT_VOLT_TARGET 716         /* Voltage reaching TARGET means charge is done. */
 
-#define CHG_VOLT_DROP_DELTA     50     /* Voltage delta for reverse detection. */
-
-//#define CHG_VOLT_DROP_DELTA     8     /* Voltage delta for reverse detection. */
+#define CHG_VOLT_DROP_DELTA     8     /* Voltage delta for reverse detection. */
 #define CHG_VOLT_DROP_COUNT     5     /* How many times in a row we consider as real reverse */
 
 /* Timeout controls, phase 1 is forced charging and phase 2 is with voltage drop detection */
@@ -81,8 +78,8 @@ int main(void)
 
     while (1)
     {
-		_delay_ms(1000);
-		
+        _delay_ms(1000);
+        
         detect_batt();   /* Until we see a battery connected */
         ret = charge();  /* Charge mode */
         output_pwm(0);   /* Charge done, make sure output is off */
@@ -162,15 +159,15 @@ void output_pwm(byte pow)
     if (pow == 0)
     {
         TCCR0A &= ~(3 << COM0A0); /* Turn off pwm */
-		PORTB &= ~(1 << PORTB0);
+        PORTB &= ~(1 << PORTB0);
     }
     else if (pow == 255)
     {
         TCCR0A &= ~(3 << COM0A0); /* Turn off pwm */
-		PORTB |= (1 << PORTB0);
-	}
-	else
-	{
+        PORTB |= (1 << PORTB0);
+    }
+    else
+    {
         TCCR0A |= 2 << COM0A0; /* Turn on pwm */
         OCR0A = pow;
     }
@@ -223,7 +220,7 @@ byte charge()
 
     pwm = CHG_PWM_MIN;
     target_current = CHG_CURRENT;
-	peak = 0;
+    peak = 0;
     
     led_on();
     
@@ -234,14 +231,16 @@ byte charge()
         ibat = read_adc(IBAT, 3);
         vbat = read_adc(VBAT, 2);
 
-        /* Check if current is too high or out of control */
-        if ((ibat >= CHG_CURRENT_FUSE) ||
-            ((pwm == CHG_PWM_MIN) && (ibat > CHG_CURRENT_MAX)))
+        /* Check if current is too high or out of control, skip the first second */
+        if (seconds >= 1)
         {
-            output_pwm(0); /* Turn off output as soon as possible */
-            return CHG_ERR_FUSE; /* Finished because of Short Current */
+            if ((pwm == CHG_PWM_MIN) && (ibat > CHG_CURRENT_MAX))
+            {
+                output_pwm(0); /* Turn off output as soon as possible */
+                return CHG_ERR_FUSE; /* Finished because of Short Current */
+            }
         }
-
+                
         /* Battery removal check*/
         if ((pwm == CHG_PWM_MAX) && (ibat < CHG_CURRENT_THRESHOLD))
             return CHG_ERR_BATT_GONE;
@@ -253,34 +252,34 @@ byte charge()
         if ((ibat > target_current) && (pwm > CHG_PWM_MIN))
             pwm --;
         
-		/* Remove the voltage on i-sense resistor to get real voltage */
-		real_vbat = vbat - (ibat / 4);
-		
-		/* Timeout and finish voltage check */
+        /* Remove the voltage on i-sense resistor to get real voltage */
+        real_vbat = vbat - (ibat / 4);
+        
+        /* Timeout and finish voltage check */
         if (seconds > CHG_TIMEOUT)
             return CHG_DONE_FULL; /* Finish */
-		
-		/* Phase 2 control */
-		if (seconds > CHG_TIME_FORCE)
-		{
-			/* Check if target voltage met */
-			if (real_vbat > BATT_VOLT_TARGET)
-				return CHG_DONE_FULL; /* Finish */
-
-			/* Voltage reverse check when max voltage is higher than threshold. */
-			if (real_vbat < peak - CHG_VOLT_DROP_DELTA)
-				revcount ++;
-			else
-				revcount = 0;
-            
-			if (revcount > CHG_VOLT_DROP_COUNT)
-				return CHG_DONE_FULL;
         
-			/* Update the peak voltage, increase by 1 to avoid voltage jump. */
-			if (peak < real_vbat)
-				peak ++;
-		}
-		
+        /* Phase 2 control */
+        if (seconds > CHG_TIME_FORCE)
+        {
+            /* Check if target voltage met */
+            if (real_vbat > BATT_VOLT_TARGET)
+                return CHG_DONE_FULL; /* Finish */
+
+            /* Voltage reverse check when max voltage is higher than threshold. */
+            if (real_vbat < peak - CHG_VOLT_DROP_DELTA)
+                revcount ++;
+            else
+                revcount = 0;
+            
+            if (revcount > CHG_VOLT_DROP_COUNT)
+                return CHG_DONE_FULL;
+        
+            /* Update the peak voltage, increase by 1 to avoid voltage jump. */
+            if (peak < real_vbat)
+                peak ++;
+        }
+        
         if (old_sec != seconds)
         {
             old_sec = seconds;
@@ -303,31 +302,31 @@ byte charge()
 
 void charge_done()
 {
-	short vbat, old_vbat;
-	
+    short vbat, old_vbat;
+    
     output_pwm(0);
-	led_on();
+    led_on();
     _delay_ms(1000);
-	
-	old_vbat = read_adc(VBAT, 2);
-	
+    
+    old_vbat = read_adc(VBAT, 2);
+    
     while (1)
     {
         vbat = read_adc(VBAT, 2);
-		
-		/* Battery removal detection */
+        
+        /* Battery removal detection */
         if ((vbat < BATT_REMOVAL_THRESHOLD) ||
-			(vbat < old_vbat - BATT_REMOVAL_DROP))
-			return;
-		
-        /* Short current detection */
+            (vbat < old_vbat - BATT_REMOVAL_DROP))
+            return;
+        
+        /* Current exists means MOS out of control */
         if (read_adc(IBAT, 2) > CHG_CURRENT_THRESHOLD)
         {
             batt_alert();
             return;
         }
-		
-		old_vbat = vbat;
+        
+        old_vbat = vbat;
 
         _delay_ms(1000);
         wdt_reset();
@@ -346,12 +345,12 @@ void batt_alert()
     {
         /* Battery removal detection */        
         if ((tick > ALERT_MINIMAL_TIME * 5)
-			 && (read_adc(VBAT, 2) < BATT_REMOVAL_THRESHOLD))
+             && (read_adc(VBAT, 2) < BATT_REMOVAL_THRESHOLD))
             return;
         
-		(tick & 1) ? led_on() : led_off();
-		
-        _delay_ms(200);
+        (tick & 1) ? led_on() : led_off();
+        
+        _delay_ms(100);
         tick ++;
         
         wdt_reset();
