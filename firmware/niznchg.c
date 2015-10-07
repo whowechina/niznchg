@@ -59,11 +59,13 @@ void batt_alert();
 #define BATT_VOLT_THRESHOLD 500   /* Voltage below THRESHOLD means battery removed. */
 #define BATT_VOLT_TARGET 716      /* Voltage reaching TARGET means charge is done. */
 
-#define CHG_VOLT_DROP_DELTA     8     /* Voltage delta for reverse detection. */
+#define CHG_VOLT_DROP_DELTA     50     /* Voltage delta for reverse detection. */
+
+//#define CHG_VOLT_DROP_DELTA     8     /* Voltage delta for reverse detection. */
 #define CHG_VOLT_DROP_COUNT     5     /* How many times in a row we consider as real reverse */
 
 /* Timeout controls, phase 1 is forced charging and phase 2 is with voltage drop detection */
-#define CHG_TIMEOUT 3600 * 4     /* Timeout (in seconds) of entire charging process */
+#define CHG_TIMEOUT (1000 * 4)   /* Timeout (in seconds) of entire charging process */
 #define CHG_TIME_FORCE 3600      /* Timeout (in seconds) of forced charging (phase 1) */
 
 #define ALERT_MINIMAL_TIME 10    /* Minimal alert duration in seconds */
@@ -198,9 +200,9 @@ void detect_batt()
             return;
             
         /* Flash the green LED indicating "Waiting for Battery" */
-        (tick & 0x07) ? led_off() : led_on();
+        (tick & 0x0f) ? led_off() : led_on();
 
-        _delay_ms(200);
+        _delay_ms(150);
         tick ++;
         
         wdt_reset();
@@ -284,7 +286,7 @@ byte charge()
             (seconds & 1) ? led_on() : led_off();
         }
 
-#define TICK_PER_SECOND   276  /* Should be adjusted to match the real time */
+#define TICK_PER_SECOND   275  /* Should be adjusted to match the real time */
 
         tick ++;
         if (tick > TICK_PER_SECOND)
