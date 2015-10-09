@@ -42,7 +42,7 @@ void batt_alert();
 
 #define LED PORTB1 
 
-#define CHG_CURRENT 62L    /* (Target current = 0.3A) * (Sense resistor = 1ohm) / (VRef = 5V) * (Scale = 1024) */
+#define CHG_CURRENT 29L    /* (Target current = 0.3A) * (Sense resistor = 0.5ohm) / (VRef = 5V) * (Scale = 1024) */
 
 #define CHG_DONE_FULL 0
 #define CHG_ERR_FUSE 1
@@ -52,8 +52,8 @@ void batt_alert();
 #define CHG_PWM_MIN 1       /* Minimal PWM value allowed for charge. */
 #define CHG_PWM_MAX 240     /* Maximum PWM value allowed for charge. */
 
-#define CHG_CURRENT_THRESHOLD 10  /* Current exceeds THRESHOLD means battery exists. */
-#define CHG_CURRENT_MAX 100       /* Current exceeds MAX with PWM_MIN is out of control. */
+#define CHG_CURRENT_THRESHOLD 4   /* Current exceeds THRESHOLD means battery exists. */
+#define CHG_CURRENT_MAX 50        /* Current exceeds MAX with PWM_MIN is out of control. */
 
 #define BATT_REMOVAL_THRESHOLD 400   /* Voltage below THRESHOLD means battery removed. */
 #define BATT_REMOVAL_DROP 50         /* Voltage drop greater than DROP means battery removed. */
@@ -63,7 +63,7 @@ void batt_alert();
 #define CHG_VOLT_DROP_COUNT     5     /* How many times in a row we consider as real reverse */
 
 /* Timeout controls, phase 1 is forced charging and phase 2 is with voltage drop detection */
-#define CHG_TIMEOUT (300)   /* Timeout (in seconds) of entire charging process */
+#define CHG_TIMEOUT (3600 * 4)   /* Timeout (in seconds) of entire charging process */
 #define CHG_TIME_FORCE 3600      /* Timeout (in seconds) of forced charging (phase 1) */
 
 #define ALERT_MINIMAL_TIME 10    /* Minimal alert duration in seconds */
@@ -78,15 +78,12 @@ int main(void)
 
     while (1)
     {
-        _delay_ms(1000);
-        
         detect_batt();   /* Until we see a battery connected */
         ret = charge();  /* Charge mode */
         output_pwm(0);   /* Charge done, make sure output is off */
         switch (ret)
         {
             case CHG_DONE_FULL:  /* If it is a normal finish,      */
-                led_on();   /* light on GREEN.             */
                 charge_done();   /* Then wait for battery removal. */
                 break;
 
@@ -188,13 +185,12 @@ void detect_batt()
     short tick = 0;
     unsigned short ibat;
     
-    led_off();
-
-    output_pwm(CHG_PWM_TEST);  /* Turn on output to detect battery. */
-   
     while (1)
     {
-        ibat = read_adc(IBAT, 3);
+        /* Detect battery by applying pulse voltage. */
+        output_pwm(CHG_PWM_TEST);  
+        ibat = read_adc(IBAT, 1);
+        output_pwm(0);             
         
         if (ibat > CHG_CURRENT_THRESHOLD)  /* Battery connected if we see current. */
             return;
@@ -221,8 +217,6 @@ byte charge()
     pwm = CHG_PWM_MIN;
     target_current = CHG_CURRENT;
     peak = 0;
-    
-    led_on();
     
     while (1)
     {
@@ -288,7 +282,7 @@ byte charge()
             (seconds % 3) ? led_on() : led_off();
         }
 
-#define TICK_PER_SECOND   275  /* Should be adjusted to match the real time */
+#define TICK_PER_SECOND   268  /* Should be adjusted to match the real time */
 
         tick ++;
         if (tick > TICK_PER_SECOND)
