@@ -39,6 +39,7 @@ void batt_alert();
 
 #define IBAT  (0 << REFS0) | (0 << ADLAR) | (1 << MUX0) /* Vcc as VRef, Single-ended ADC1 (PB2) */
 #define VBAT  (0 << REFS0) | (0 << ADLAR) | (3 << MUX0) /* Vcc as VRef, Single-ended ADC3 (PB3) */
+#define TBAT  (0 << REFS0) | (0 << ADLAR) | (2 << MUX0) /* Vcc as VRef, Single-ended ADC3 (PB4) */
 
 #define LED PORTB1 
 
@@ -52,12 +53,16 @@ void batt_alert();
 #define CHG_PWM_MIN 1       /* Minimal PWM value allowed for charge. */
 #define CHG_PWM_MAX 240     /* Maximum PWM value allowed for charge. */
 
+#define CHG_PWM_FREQ_TRIG_LOW 16 
+#define CHG_PWM_FREQ_TRIG_HIGH 32
+
+
 #define CHG_CURRENT_THRESHOLD 4   /* Current exceeds THRESHOLD means battery exists. */
 #define CHG_CURRENT_MAX 50        /* Current exceeds MAX with PWM_MIN is out of control. */
 
 #define BATT_REMOVAL_THRESHOLD 400   /* Voltage below THRESHOLD means battery removed. */
 #define BATT_REMOVAL_DROP 50         /* Voltage drop greater than DROP means battery removed. */
-#define BATT_VOLT_TARGET 716         /* Voltage reaching TARGET means charge is done. */
+#define BATT_VOLT_TARGET 727         /* Voltage reaching TARGET means charge is done. */
 
 #define CHG_VOLT_DROP_DELTA     8     /* Voltage delta for reverse detection. */
 #define CHG_VOLT_DROP_COUNT     5     /* How many times in a row we consider as real reverse */
@@ -67,8 +72,6 @@ void batt_alert();
 #define CHG_TIME_FORCE 3600      /* Timeout (in seconds) of forced charging (phase 1) */
 
 #define ALERT_MINIMAL_TIME 10    /* Minimal alert duration in seconds */
-
-#define pwm_time(a, b) output_pwm(a); _delay_ms(b);
 
 int main(void)
 {
@@ -153,6 +156,12 @@ unsigned short read_adc(byte source, byte n)
 
 void output_pwm(byte pow)
 {
+    if (pow <= CHG_PWM_FREQ_TRIG_LOW)
+        TCCR0B = 0 << WGM02 | 3 << CS00;  /* Div 8, 4.6KHz*/
+    
+    if (pow >= CHG_PWM_FREQ_TRIG_HIGH)
+        TCCR0B = 0 << WGM02 | 2 << CS00;  /* Div 64, 600Hz */
+        
     if (pow == 0)
     {
         TCCR0A &= ~(3 << COM0A0); /* Turn off pwm */
@@ -208,7 +217,7 @@ void detect_batt()
 byte charge()
 {
     byte pwm;
-    short ibat, vbat, real_vbat, peak;
+    short ibat, vbat, tbat, real_vbat, peak;
     short seconds = 0, tick = 0;
     short old_sec = 0;
     short target_current;
@@ -276,13 +285,20 @@ byte charge()
         
         if (old_sec != seconds)
         {
+            /* Temperature check every second */
+
+            tbat = read_adc(TBAT, 3) - ibat;
+            
+            if (tbat - ibat <= 284) /* Higher than about 50 degree Celsius */
+                return CHG_DONE_FULL;
+
             old_sec = seconds;
             wdt_reset();
 
             (seconds % 3) ? led_on() : led_off();
         }
 
-#define TICK_PER_SECOND   268  /* Should be adjusted to match the real time */
+#define TICK_PER_SECOND   267  /* Should be adjusted to match the real time */
 
         tick ++;
         if (tick > TICK_PER_SECOND)
