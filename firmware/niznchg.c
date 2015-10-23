@@ -9,7 +9,7 @@
 
 #include <avr/signature.h>
 const char fusedata[] __attribute__ ((section (".fuse"))) =
-{0x7A, 0xFF};
+{0x7A, 0xFE};
 const char lockbits[] __attribute__ ((section (".lockbits"))) =
 {0xFC};
 
@@ -20,28 +20,27 @@ const char lockbits[] __attribute__ ((section (".lockbits"))) =
 
 typedef unsigned char byte;
 
-void init();
-void init_port();
-void init_adc();
-void init_pwm();
+static void init();
 
 /* Hardware Controls */
-void output_pwm(byte pow);
-unsigned short read_adc(byte source, byte n);
-void led_on();
-void led_off();
+static void output_pwm(byte pow);
+static unsigned short read_adc(byte source, byte n);
 
 /* Charge Procedures */
-void detect_batt();
-byte charge();
-void charge_done();
-void batt_alert();
+static void detect_batt();
+static byte charge();
+static void charge_done();
+static void batt_alert();
 
 #define IBAT  (0 << REFS0) | (0 << ADLAR) | (1 << MUX0) /* Vcc as VRef, Single-ended ADC1 (PB2) */
-#define VBAT  (0 << REFS0) | (0 << ADLAR) | (3 << MUX0) /* Vcc as VRef, Single-ended ADC3 (PB3) */
-#define TBAT  (0 << REFS0) | (0 << ADLAR) | (2 << MUX0) /* Vcc as VRef, Single-ended ADC3 (PB4) */
+#define VBAT  (0 << REFS0) | (0 << ADLAR) | (2 << MUX0) /* Vcc as VRef, Single-ended ADC2 (PB4) */
+#define TBAT  (0 << REFS0) | (0 << ADLAR) | (3 << MUX0) /* Vcc as VRef, Single-ended ADC3 (PB3) */
 
-#define LED PORTB1 
+#define GREEN PORTB1
+#define RED PORTB5
+
+#define LED_ON(led) (PORTB |= (1 << led))
+#define LED_OFF(led) (PORTB &= ~(1 << led))
 
 #define CHG_CURRENT 29L    /* (Target current = 0.3A) * (Sense resistor = 0.5ohm) / (VRef = 5V) * (Scale = 1024) */
 
@@ -60,11 +59,11 @@ void batt_alert();
 #define CHG_CURRENT_THRESHOLD 4   /* Current exceeds THRESHOLD means battery exists. */
 #define CHG_CURRENT_MAX 50        /* Current exceeds MAX with PWM_MIN is out of control. */
 
-#define BATT_REMOVAL_THRESHOLD 400   /* Voltage below THRESHOLD means battery removed. */
-#define BATT_REMOVAL_DROP 50         /* Voltage drop greater than DROP means battery removed. */
-#define BATT_VOLT_TARGET 727         /* Voltage reaching TARGET means charge is done. */
+#define BATT_REMOVAL_THRESHOLD 450   /* Voltage below THRESHOLD means battery removed. */
+#define BATT_REMOVAL_DROP 75         /* Voltage drop greater than DROP means battery removed. */
+#define BATT_VOLT_TARGET 930         /* Voltage reaching TARGET means charge is done. */
 
-#define CHG_VOLT_DROP_DELTA     8     /* Voltage delta for reverse detection. */
+#define CHG_VOLT_DROP_DELTA     9     /* Voltage delta for reverse detection. */
 #define CHG_VOLT_DROP_COUNT     5     /* How many times in a row we consider as real reverse */
 
 /* Timeout controls, phase 1 is forced charging and phase 2 is with voltage drop detection */
@@ -103,33 +102,25 @@ int main(void)
 
 void init()
 {
-    init_port();
-    init_pwm();
-    init_adc();
-    wdt_enable(WDTO_8S);
-}
-
-void init_port()
-{
+    /* Initialize Port */
+    
     /* Clear Output */
     PORTB = 0x00;
-    
     /* PB0 as PWM Out, LED out */
-    DDRB = 1 << DDB0 | 1 << DDB1;
-}
+    DDRB = 1 << DDB0 | 1 << GREEN | 1 << RED;
 
-void init_pwm()
-{
+    /* Initialize PWM */
+    
     /* Fast PWM Mode, Prescaler set to 'div/1', initially off. */
     TCCR0A = 0 << COM0A0 | 3 << WGM00;
     TCCR0B = 0 << WGM02 | 2 << CS00;
-}
-
-void init_adc()
-{
-    ADCSRA = (1 << ADEN) | (7 << ADPS0); /* ADC Enable, Prescaler factor 128 */ 
+    
+    /* Initialize ADC */
+    ADCSRA = (1 << ADEN) | (7 << ADPS0); /* ADC Enable, Prescaler factor 128 */
     DIDR0 = 0xff;        /* Digital Buffer All Cleared */
     ADMUX = VBAT;        /* Initial Input VBAT*/
+
+    wdt_enable(WDTO_8S);
 }
 
 unsigned short read_adc(byte source, byte n)
@@ -179,21 +170,12 @@ void output_pwm(byte pow)
     }
 }
 
-void led_on()
-{
-    PORTB |= (1 << LED);
-}
-
-void led_off()
-{
-    PORTB &= ~(1 << LED);
-}
-
 void detect_batt()
 {
     short tick = 0;
     unsigned short ibat;
     
+    LED_OFF(RED);
     while (1)
     {
         /* Detect battery by applying pulse voltage. */
@@ -205,7 +187,7 @@ void detect_batt()
             return;
             
         /* Flash the green LED indicating "Waiting for Battery" */
-        (tick % 25) ? led_off() : led_on();
+        (tick % 25) ? LED_OFF(GREEN) : LED_ON(GREEN);
 
         _delay_ms(100);
         tick ++;
@@ -227,6 +209,9 @@ byte charge()
     target_current = CHG_CURRENT;
     peak = 0;
     
+    LED_ON(RED);
+    LED_OFF(GREEN);
+
     while (1)
     {
         output_pwm(pwm);
@@ -294,8 +279,6 @@ byte charge()
 
             old_sec = seconds;
             wdt_reset();
-
-            (seconds % 3) ? led_on() : led_off();
         }
 
 #define TICK_PER_SECOND   267  /* Should be adjusted to match the real time */
@@ -315,7 +298,7 @@ void charge_done()
     short vbat, old_vbat;
     
     output_pwm(0);
-    led_on();
+    LED_ON(GREEN);
     _delay_ms(1000);
     
     old_vbat = read_adc(VBAT, 2);
@@ -341,8 +324,6 @@ void charge_done()
         _delay_ms(1000);
         wdt_reset();
     }
-    
-    led_off();
 }
 
 void batt_alert()
@@ -350,6 +331,7 @@ void batt_alert()
     byte tick = 0;
     
     output_pwm(0);
+    LED_OFF(GREEN);
     
     while (1)
     {
@@ -358,7 +340,7 @@ void batt_alert()
              && (read_adc(VBAT, 2) < BATT_REMOVAL_THRESHOLD))
             return;
         
-        (tick & 1) ? led_on() : led_off();
+        (tick & 1) ? LED_ON(RED) : LED_OFF(RED);
         
         _delay_ms(100);
         tick ++;
