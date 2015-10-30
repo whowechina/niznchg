@@ -31,7 +31,7 @@ static void welcome();
 static void detect_batt();
 static byte charge();
 static void charge_done();
-static void batt_alert();
+static void batt_alert(byte type);
 
 #define IBAT  (0 << REFS0) | (0 << ADLAR) | (1 << MUX0) /* Vcc as VRef, Single-ended ADC1 (PB2) */
 #define VBAT  (0 << REFS0) | (0 << ADLAR) | (2 << MUX0) /* Vcc as VRef, Single-ended ADC2 (PB4) */
@@ -45,7 +45,8 @@ static void batt_alert();
 
 #define CHG_DONE_FULL 0
 #define CHG_ERR_FUSE 1
-#define CHG_ERR_BATT_GONE 2
+#define CHG_ERR_LOWCURRENT 2
+#define CHG_ERR_BATT_GONE 3
 
 #define CHG_PWM_MIN 1       /* Minimal PWM value allowed for charge. */
 #define CHG_PWM_MAX 240     /* Maximum PWM value allowed for charge. */
@@ -87,9 +88,14 @@ int main(void)
                 charge_done();   /* Then wait for battery removal. */
                 break;
 
-            case CHG_ERR_FUSE:   /* If something wrong with the charge, */
-                batt_alert();     /* alert and wait for battery removal. */
+            case CHG_ERR_LOWCURRENT:   /* If something wrong with the charge, */
+                batt_alert(0);     /* alert and wait for battery removal. */
                 break;
+                
+            case CHG_ERR_FUSE:   /* If something wrong with the charge, */
+                batt_alert(1);     /* alert and wait for battery removal. */
+                break;
+                
             default:
                 break;
         }
@@ -241,7 +247,7 @@ byte charge()
                 
         /* Battery removal check*/
         if ((pwm == CHG_PWM_MAX) && (ibat < CHG_CURRENT_THRESHOLD))
-            return CHG_ERR_BATT_GONE;
+            return CHG_ERR_LOWCURRENT;
 
         /* Constant current control */
         if ((ibat < target_current) && (pwm < CHG_PWM_MAX))
@@ -287,7 +293,7 @@ byte charge()
             if (tbat >= TBAT_VALID_HIGH)
                 return CHG_ERR_BATT_GONE;
 
-            if (tbat - ibat * 5 / 7 <= 293) /* Higher than about 51 degree Celsius, tbat - i*5/7 < 293 */
+            if (tbat - ibat * 5 / 7 <= 273) /* About 54 degree, assuming NTC is about 4Kohm around 50 degree */
                 return CHG_DONE_FULL;
 
             old_sec = seconds;
@@ -322,7 +328,7 @@ void charge_done()
         /* Current exists means MOS out of control */
         if (read_adc(IBAT, 2) > CHG_CURRENT_THRESHOLD)
         {
-            batt_alert();
+            batt_alert(1);
             return;
         }
 
@@ -331,7 +337,7 @@ void charge_done()
     }
 }
 
-void batt_alert()
+void batt_alert(byte type)
 {
     output_pwm(0);
 
@@ -339,13 +345,15 @@ void batt_alert()
     {
         /* Battery removal detection */
         if (read_adc(TBAT, 3) >= TBAT_VALID_HIGH)
-            return;
+        return;
         
         LED_OFF(GREEN);
         LED_ON(RED);
         _delay_ms(100);
+
         LED_OFF(RED);
-        LED_ON(GREEN);
+        if (type)
+            LED_ON(GREEN);
         _delay_ms(100);
         
         wdt_reset();
