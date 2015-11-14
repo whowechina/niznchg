@@ -60,7 +60,7 @@ static void batt_alert(byte type);
 
 #define BATT_VOLT_TARGET 930         /* Voltage reaching TARGET means charge is done. */
 
-#define CHG_VOLT_DROP_DELTA     8     /* Voltage delta for reverse detection. */
+#define CHG_VOLT_DROP_DELTA     15     /* Voltage delta for reverse detection. About 0.15 - 0.25 mV */
 #define CHG_VOLT_DROP_COUNT     5     /* How many times in a row we consider as real reverse */
 
 #define TBAT_VALID_HIGH      940  /* TBAT higher than this means battery not connected */
