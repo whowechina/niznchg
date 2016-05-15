@@ -61,7 +61,7 @@ void batt_alert(char mode);
 #define TEMP_VALID_HIGH 70
 
 #define TEMP_FULL      49		/* Treated as Battery full */
-#define TEMP_CRITICAL  55		/* Treated as Battery temp too high */
+#define TEMP_CRITICAL  60		/* Treated as Battery temp too high */
 
 #define PHASE_1_DURATION (50 * 60)  /* In seconds */
 #define CHG_TIMEOUT (60 * 60) /* In seconds */
@@ -476,13 +476,13 @@ signed short charge_done()
         {
             break;
         }
-
+#if 0
 		/* Temperature check, if temp is too high */
 		if (tbat > TEMP_CRITICAL)
 		{
 			batt_alert(1);
 		}
-
+#endif
         t ++;
         _delay_ms(400);
         wdt_reset();
